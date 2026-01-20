@@ -115,7 +115,6 @@ In the add-on panel:
 Default folders (editable):
 
 - `assets/models`
-- `assets/models` (for `.model`)
 - `assets/prefabs`
 - `assets/scenes`
 - `assets/textures`
