@@ -1,0 +1,34 @@
+schema_version = "1.0.0"
+
+id = "reforge"
+name = "Reforge"
+version = "0.5.1"
+
+tagline = "Reforge Blender scenes into Defold assets"
+description = """
+Reforge exports Blender scenes into Defold projects.
+
+Features:
+- Export .collection scenes
+- Generate .go prefabs (not overwritten)
+- Create .model and .glb assets
+- Multi-material support
+- Optional convex collision export
+- Texture export to Defold project
+- Safe cleanup of exporter properties
+
+Designed for Defold-based pipelines.
+"""
+
+type = "add-on"
+category = "Import-Export"
+
+maintainer = "Alexander Bulatov"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+blender_version_min = "4.2.0"
+
+website = "https://github.com/ufgo/defold-export-for-blender"
