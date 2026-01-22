@@ -1,5 +1,7 @@
 import bpy
 
+from .materials import ensure_material_props
+
 def draw_foldout_header(layout, prop_owner, prop_name: str):
     is_open = bool(getattr(prop_owner, prop_name))
     icon = "TRIA_DOWN" if is_open else "TRIA_RIGHT"
@@ -37,25 +39,6 @@ class REFORGE_PT_panel(bpy.types.Panel):
             col.separator()
             col.operator("reforge.export_selected_prototype", icon="EXPORT")
             col.operator("reforge.export_all_prototypes", icon="EXPORT")
-
-        box = layout.box()
-        if draw_foldout_header(box, s, "show_textures"):
-            col = box.column(align=True)
-            col.prop(s, "export_textures")
-            col.separator()
-            col.label(text="Material Custom Properties:")
-            col.label(text='- defold_material (string) -> Defold .material path')
-            col.label(text='- defold_texture  (string) -> Defold texture path (optional)')
-            col.separator()
-            col.label(text="If defold_texture is missing:")
-            col.label(text="Principled BSDF -> Base Color -> Image Texture is used.")
-            col.separator()
-            col.label(text="Baking:")
-            col.prop(s, "bake_color_texture")
-            sub = col.column(align=True)
-            sub.enabled = s.bake_color_texture
-            sub.prop(s, "bake_resolution")
-            sub.prop(s, "bake_padding")
 
         box = layout.box()
         if draw_foldout_header(box, s, "show_folders"):
@@ -99,8 +82,35 @@ class REFORGE_PT_panel(bpy.types.Panel):
             col.operator("reforge.clear_visible", icon="TRASH")
             col.operator("reforge.clear_all", icon="TRASH")
 
+class REFORGE_PT_material_props(bpy.types.Panel):
+    bl_label = "Reforge"
+    bl_idname = "REFORGE_PT_material_props"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
 
-_CLASSES = (REFORGE_PT_panel,)
+    def draw(self, context):
+        layout = self.layout
+        mat = context.material
+        if not mat:
+            layout.label(text="No active material")
+            return
+
+        ensure_material_props(mat)
+
+        col = layout.column(align=True)
+        col.label(text="Defold:")
+        col.prop(mat, '["defold_material"]', text="Defold Material")
+        col.prop(mat, '["defold_texture"]', text="Defold Texture")
+        col.separator()
+        col.label(text="Bake:")
+        col.prop(mat, '["bake_color_texture"]', text="Bake Color Texture (PNG)")
+        sub = col.column(align=True)
+        sub.enabled = bool(mat.get("bake_color_texture"))
+        sub.prop(mat, '["bake_resolution"]', text="Bake Resolution")
+        sub.prop(mat, '["bake_padding"]', text="Bake Padding")
+
+_CLASSES = (REFORGE_PT_panel, REFORGE_PT_material_props)
 
 def register():
     for c in _CLASSES:

@@ -6,11 +6,18 @@ from .export_core import (
     export_single_prototype_assets,
     export_all_prototypes_assets_no_scene,
 )
+from .materials import ensure_material_props
 from .utils import is_object_visible, sanitize_id
 
 # Keys to clear (exporter-created)
 OBJECT_EXPORT_KEYS = ("defold_prototype", "defold_collision", "collision_group", "collision_mask")
-MATERIAL_EXPORT_KEYS = ("defold_material", "defold_texture")
+MATERIAL_EXPORT_KEYS = (
+    "defold_material",
+    "defold_texture",
+    "bake_color_texture",
+    "bake_resolution",
+    "bake_padding",
+)
 
 
 # ------------------------------------------------------------
@@ -131,6 +138,10 @@ def _set_properties_for_objects(context, objects):
             changed["msk"] += 1
         else:
             changed["msk_skip"] += 1
+
+    mats = _collect_materials_from_objects(objects)
+    for m in mats:
+        ensure_material_props(m)
 
     return changed
 

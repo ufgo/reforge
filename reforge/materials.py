@@ -6,6 +6,22 @@ from typing import Optional, List, Tuple
 from .utils import ensure_dir, sanitize_id
 
 DEFAULT_DEFOLD_TEXTURE = "/builtins/assets/images/logo/logo_256.png"
+DEFAULT_BAKE_RESOLUTION = 1024
+DEFAULT_BAKE_PADDING = 8
+
+def ensure_material_props(mat: Optional[bpy.types.Material]):
+    if not mat:
+        return
+    if "defold_material" not in mat:
+        mat["defold_material"] = ""
+    if "defold_texture" not in mat:
+        mat["defold_texture"] = ""
+    if "bake_color_texture" not in mat:
+        mat["bake_color_texture"] = False
+    if "bake_resolution" not in mat:
+        mat["bake_resolution"] = DEFAULT_BAKE_RESOLUTION
+    if "bake_padding" not in mat:
+        mat["bake_padding"] = DEFAULT_BAKE_PADDING
 
 def iter_unique_materials_in_order(obj: bpy.types.Object) -> List[bpy.types.Material]:
     result, seen = [], set()

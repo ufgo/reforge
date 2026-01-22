@@ -16,6 +16,7 @@ from .utils import (
 from .materials import (
     iter_unique_materials_in_order,
     resolve_defold_material_and_texture_for_material,
+    ensure_material_props,
 )
 
 from .collision import (
@@ -75,6 +76,21 @@ def _make_baked_texture_filename(proto: str, mat_name: str) -> str:
     # Stable filename, always PNG
     return f"{proto}__{sanitize_id(mat_name)}_albedo.png"
 
+def _material_prop_bool(mat, key: str, default: bool = False) -> bool:
+    if not mat:
+        return default
+    v = mat.get(key)
+    return bool(v) if v is not None else default
+
+def _material_prop_int(mat, key: str, default: int) -> int:
+    if not mat:
+        return default
+    v = mat.get(key)
+    try:
+        return int(v)
+    except Exception:
+        return default
+
 
 def export_single_prototype_assets(context, obj) -> str:
     """
@@ -105,11 +121,16 @@ def export_single_prototype_assets(context, obj) -> str:
     abs_textures = os.path.join(project_root, s.textures_dir)
     abs_collisions = os.path.join(project_root, s.collisions_dir)
 
+    materials = iter_unique_materials_in_order(obj)
+    for m in materials:
+        ensure_material_props(m)
+    needs_bake = any(_material_prop_bool(m, "bake_color_texture") for m in materials)
+
     # ensure dirs
     ensure_dir(abs_models)
     ensure_dir(abs_prefabs)
     ensure_dir(abs_collisions)
-    if s.export_textures or s.bake_color_texture:
+    if s.export_textures or needs_bake:
         ensure_dir(abs_textures)
 
     # filenames
@@ -139,7 +160,6 @@ def export_single_prototype_assets(context, obj) -> str:
     export_glb_selected(abs_glb)
 
     # build .model material blocks
-    materials = iter_unique_materials_in_order(obj)
     blocks = []
 
     if materials:
@@ -153,7 +173,9 @@ def export_single_prototype_assets(context, obj) -> str:
             )
 
             # Bake overrides tex0 path (works with complex materials / Ucupaint)
-            if s.bake_color_texture:
+            if _material_prop_bool(mat, "bake_color_texture"):
+                bake_resolution = _material_prop_int(mat, "bake_resolution", 1024)
+                bake_padding = _material_prop_int(mat, "bake_padding", 8)
                 baked_filename = _make_baked_texture_filename(proto, mat_name)
                 baked_abs = os.path.join(abs_textures, baked_filename)
 
@@ -164,8 +186,8 @@ def export_single_prototype_assets(context, obj) -> str:
                     obj=obj,
                     mat=mat,
                     out_abs_path=baked_abs,
-                    resolution=int(s.bake_resolution),
-                    padding=int(s.bake_padding),
+                    resolution=bake_resolution,
+                    padding=bake_padding,
                 )
                 if baked_ok:
                     defold_tex_path = f"/{s.textures_dir}/{baked_filename}".replace("\\", "/")

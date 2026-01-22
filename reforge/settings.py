@@ -1,6 +1,5 @@
 import bpy
 from bpy.props import StringProperty, BoolProperty, PointerProperty
-from bpy.props import IntProperty
 
 BUILTIN_DEFAULT_DEFOLD_MATERIAL = "/builtins/materials/model.material"
 
@@ -8,7 +7,6 @@ class ReforgeSettings(bpy.types.PropertyGroup):
     # Foldouts
     show_export: BoolProperty(name="Export", default=True)
     show_quick_export: BoolProperty(name="Quick Export", default=True)
-    show_textures: BoolProperty(name="Textures", default=False)
     show_folders: BoolProperty(name="Folders", default=False)
     show_tools: BoolProperty(name="Tools", default=False)
     show_clear: BoolProperty(name="Clear", default=False)
@@ -42,27 +40,6 @@ class ReforgeSettings(bpy.types.PropertyGroup):
 
     # Duplicate detection
     detect_duplicates: BoolProperty(name="Detect duplicates (.001, .002, etc -> base name)",default=False)
-
-    # Bake color texture
-    bake_color_texture: BoolProperty(
-        name="Bake color texture (PNG)",
-        description="Bake final color to PNG using EMIT (works with Ucupaint). Requires UVs.",
-        default=False
-    )
-    bake_resolution: IntProperty(
-        name="Bake Resolution",
-        description="Texture size in pixels (square).",
-        default=1024,
-        min=64,
-        max=8192
-    )
-    bake_padding: IntProperty(
-        name="Bake Padding",
-        description="Bake margin in pixels to reduce seams.",
-        default=8,
-        min=0,
-        max=128
-    )
     
 
 _CLASSES = (ReforgeSettings,)
