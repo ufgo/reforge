@@ -11,7 +11,15 @@ Blender add-on for exporting scenes into a Defold project as:
 
 Also supports optional **convex collision export** per prototype and **texture export** into your Defold project.
 
-## Local Installation (Blender)
+## The add-on can be installed directly from Blender without manual downloads.
+
+Just open Edit → Preferences → Extensions, search for Reforge, and install it with one click.
+
+No more ZIP files — updates are handled automatically through Blender.
+
+---
+
+## Local Installation
 
 1.	Go to the Reforge releases page: https://github.com/ufgo/reforge/releases  
 2.	Download the desired version (reforge-<version>.zip).  
