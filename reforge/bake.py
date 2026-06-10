@@ -219,6 +219,11 @@ def bake_color_emit_png(
     early_constant_rgba = None
     if principled is not None:
         bc = principled.inputs.get("Base Color") or principled.inputs.get("Color")
+        if bc is None and principled.inputs:
+            # Fallback to index 0 if it is named like a color
+            first_in = principled.inputs[0]
+            if "color" in first_in.name.lower():
+                bc = first_in
         if bc is not None and (not bc.is_linked or not bc.links):
             try:
                 early_constant_rgba = tuple(bc.default_value)  # RGBA
@@ -260,6 +265,29 @@ def bake_color_emit_png(
             pass
         return False
 
+    # Save original materials in slots and temporarily isolate this material to avoid "No active image" errors from other slots
+    orig_mats = [slot.material for slot in obj.material_slots]
+    for i, slot in enumerate(obj.material_slots):
+        if slot.material != mat:
+            slot.material = None
+
+    # Setup standard bake settings to avoid interference from user settings
+    prev_bake_settings = {}
+    b = scene.render.bake
+    for prop in ("use_selected_to_active", "use_cage", "target", "use_pass_direct", "use_pass_indirect", "use_pass_color"):
+        if hasattr(b, prop):
+            prev_bake_settings[prop] = getattr(b, prop)
+
+    try:
+        if hasattr(b, "use_selected_to_active"):
+            b.use_selected_to_active = False
+        if hasattr(b, "use_cage"):
+            b.use_cage = False
+        if hasattr(b, "target"):
+            b.target = 'IMAGE_TEXTURES'
+    except Exception as e:
+        print("[Reforge][Bake] Failed to setup bake settings:", e)
+
     # Create image datablock (target)
     img_name = os.path.splitext(os.path.basename(out_abs_path))[0]
     img = bpy.data.images.new(
@@ -278,7 +306,7 @@ def bake_color_emit_png(
         out_node = nodes.new("ShaderNodeOutputMaterial")
         out_node.location = (500, 0)
 
-    surface_input = out_node.inputs.get("Surface")
+    surface_input = out_node.inputs.get("Surface") or out_node.inputs[0]
     if surface_input is None:
         print("[Reforge][Bake] Material Output has no Surface input")
         try:
@@ -316,6 +344,11 @@ def bake_color_emit_png(
     # A) Prefer Principled Base Color (linked)
     if principled is not None and constant_rgba is None:
         bc = principled.inputs.get("Base Color") or principled.inputs.get("Color")
+        if bc is None and principled.inputs:
+            # Fallback to index 0 if it is named like a color
+            first_in = principled.inputs[0]
+            if "color" in first_in.name.lower():
+                bc = first_in
         if bc is not None and bc.is_linked and bc.links:
             try:
                 # bc is INPUT -> take the OUTPUT feeding it
@@ -332,10 +365,12 @@ def bake_color_emit_png(
 
     # Apply to emission
     if constant_rgba is not None:
-        emit_node.inputs["Color"].default_value = constant_rgba
+        color_input = emit_node.inputs.get("Color") or emit_node.inputs[0]
+        color_input.default_value = constant_rgba
     elif from_color_socket is not None:
         try:
-            links.new(from_color_socket, emit_node.inputs["Color"])
+            color_input = emit_node.inputs.get("Color") or emit_node.inputs[0]
+            links.new(from_color_socket, color_input)
         except Exception as e:
             print("[Reforge][Bake] Failed to link color into emission:", e)
             from_color_socket = None  # force fallback
@@ -346,7 +381,8 @@ def bake_color_emit_png(
     can_emit = (constant_rgba is not None) or (from_color_socket is not None)
     if can_emit:
         try:
-            links.new(emit_node.outputs["Emission"], surface_input)
+            emit_output = emit_node.outputs.get("Emission") or emit_node.outputs[0]
+            links.new(emit_output, surface_input)
         except Exception as e:
             print("[Reforge][Bake] Failed to link emission to output:", e)
             can_emit = False
@@ -387,6 +423,19 @@ def bake_color_emit_png(
         ok = False
 
     finally:
+        # Restore original materials in slots
+        for i, m in enumerate(orig_mats):
+            if i < len(obj.material_slots):
+                obj.material_slots[i].material = m
+
+        # Restore general bake settings
+        b = scene.render.bake
+        for prop, val in prev_bake_settings.items():
+            try:
+                setattr(b, prop, val)
+            except Exception:
+                pass
+
         # Restore bake settings if changed
         if prev_bake is not None:
             _restore_diffuse_color_bake(scene, prev_bake)
