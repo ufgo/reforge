@@ -1,22 +1,26 @@
 from typing import List, Tuple, Optional
 
-def make_model_text_multi(mesh_path_project: str, model_name: str, materials_blocks: List[Tuple[str, str, str]]) -> str:
+def make_model_text_multi(mesh_path_project: str, model_name: str, materials_blocks: List[Tuple[str, str, dict]]) -> str:
     parts = [
         f'mesh: "{mesh_path_project}"\n',
         f'name: "{model_name}"\n'
     ]
-    for mat_name, defold_mat_path, defold_tex_path in materials_blocks:
+    for mat_name, defold_mat_path, samplers_dict in materials_blocks:
         parts.append(
             "materials {\n"
             f'  name: "{mat_name}"\n'
             f'  material: "{defold_mat_path}"\n'
-            "  textures {\n"
-            '    sampler: "tex0"\n'
-            f'    texture: "{defold_tex_path}"\n'
-            "  }\n"
-            "}\n"
         )
+        for sampler, tex_path in samplers_dict.items():
+            parts.append(
+                "  textures {\n"
+                f'    sampler: "{sampler}"\n'
+                f'    texture: "{tex_path}"\n'
+                "  }\n"
+            )
+        parts.append("}\n")
     return "".join(parts)
+
 
 def make_go_ref_model_text(model_path_project: str, collisionobject_project_path: Optional[str]):
     if collisionobject_project_path:

@@ -164,7 +164,7 @@ def export_single_prototype_assets(context, obj) -> str:
 
     if materials:
         for mat in materials:
-            mat_name, defold_mat_path, defold_tex_path = resolve_defold_material_and_texture_for_material(
+            mat_name, defold_mat_path, samplers_dict = resolve_defold_material_and_texture_for_material(
                 settings=s,
                 mat=mat,
                 abs_textures_dir=abs_textures,
@@ -190,19 +190,23 @@ def export_single_prototype_assets(context, obj) -> str:
                     padding=bake_padding,
                 )
                 if baked_ok:
-                    defold_tex_path = f"/{s.textures_dir}/{baked_filename}".replace("\\", "/")
+                    baked_tex_path = f"/{s.textures_dir}/{baked_filename}".replace("\\", "/")
+                    if "DIFFUSE_TEXTURE" in samplers_dict:
+                        samplers_dict["DIFFUSE_TEXTURE"] = baked_tex_path
+                    else:
+                        samplers_dict["tex0"] = baked_tex_path
 
-            blocks.append((mat_name, defold_mat_path, defold_tex_path))
+            blocks.append((mat_name, defold_mat_path, samplers_dict))
     else:
         # no materials on mesh -> use default single block
-        mat_name, defold_mat_path, defold_tex_path = resolve_defold_material_and_texture_for_material(
+        mat_name, defold_mat_path, samplers_dict = resolve_defold_material_and_texture_for_material(
             settings=s,
             mat=None,
             abs_textures_dir=abs_textures,
             textures_dir_project=s.textures_dir,
             obj=obj
         )
-        blocks.append((mat_name, defold_mat_path, defold_tex_path))
+        blocks.append((mat_name, defold_mat_path, samplers_dict))
 
     # write .model
     write_text_file(abs_model, make_model_text_multi(glb_project_path, proto, blocks))

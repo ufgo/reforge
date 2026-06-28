@@ -40,7 +40,7 @@ def iter_unique_materials_in_order(obj: bpy.types.Object) -> List[bpy.types.Mate
         result.append(m)
     return result
 
-def find_basecolor_image_from_material(mat: bpy.types.Material):
+def find_image_for_principled_input(mat: bpy.types.Material, input_names: List[str]) -> Optional[bpy.types.Image]:
     if not mat or not mat.use_nodes or not mat.node_tree:
         return None
 
@@ -49,11 +49,17 @@ def find_basecolor_image_from_material(mat: bpy.types.Material):
     if not principled:
         return None
 
-    base_input = principled.inputs.get("Base Color") or principled.inputs.get("Color")
-    if not base_input or not base_input.is_linked:
+    target_input = None
+    for name in input_names:
+        target_input = principled.inputs.get(name)
+        if target_input and target_input.is_linked:
+            break
+        target_input = None
+
+    if not target_input:
         return None
 
-    start_node = base_input.links[0].from_socket.node
+    start_node = target_input.links[0].from_socket.node
 
     visited, stack = set(), [start_node]
     while stack:
@@ -65,6 +71,12 @@ def find_basecolor_image_from_material(mat: bpy.types.Material):
         if node.type == "TEX_IMAGE" and getattr(node, "image", None):
             return node.image
 
+        if node.type == "NORMAL_MAP":
+            color_input = node.inputs.get("Color")
+            if color_input and color_input.is_linked:
+                stack.append(color_input.links[0].from_socket.node)
+            continue
+
         for inp in getattr(node, "inputs", []):
             if inp.is_linked:
                 try:
@@ -72,6 +84,18 @@ def find_basecolor_image_from_material(mat: bpy.types.Material):
                 except Exception:
                     pass
     return None
+
+def find_basecolor_image_from_material(mat: bpy.types.Material):
+    return find_image_for_principled_input(mat, ["Base Color", "Color"])
+
+def find_emission_image_from_material(mat: bpy.types.Material):
+    return find_image_for_principled_input(mat, ["Emission", "Emission Color"])
+
+def find_specular_image_from_material(mat: bpy.types.Material):
+    return find_image_for_principled_input(mat, ["Specular", "Specular IOR Level", "Roughness"])
+
+def find_normal_image_from_material(mat: bpy.types.Material):
+    return find_image_for_principled_input(mat, ["Normal"])
 
 def export_image_to_defold_project(image: bpy.types.Image, textures_abs_dir: str) -> Optional[str]:
     if not image:
@@ -108,7 +132,7 @@ def resolve_defold_material_and_texture_for_material(
     abs_textures_dir: str,
     textures_dir_project: str,
     obj: Optional[bpy.types.Object] = None,
-) -> Tuple[str, str, str]:
+) -> Tuple[str, str, dict]:
     # material name in .model must match glTF material name
     mat_name = mat.name if (mat and mat.name) else "default"
 
@@ -126,24 +150,47 @@ def resolve_defold_material_and_texture_for_material(
     if not defold_mat_path:
         defold_mat_path = (settings.default_material or "").strip() or "/builtins/materials/model.material"
 
-    defold_tex_path = ""
-    if mat:
-        defold_tex_path = _get_custom_prop_str(mat, "defold_texture")
-    if not defold_tex_path and obj:
-        defold_tex_path = _get_custom_prop_str(obj, "defold_texture")
-
-    if not defold_tex_path:
-        img = find_basecolor_image_from_material(mat) if mat else None
+    def _export_or_get_texture(img: Optional[bpy.types.Image]) -> str:
         if img:
             if settings.export_textures:
                 saved_name = export_image_to_defold_project(img, abs_textures_dir)
                 if saved_name:
-                    defold_tex_path = f"/{textures_dir_project}/{saved_name}".replace("\\", "/")
+                    return f"/{textures_dir_project}/{saved_name}".replace("\\", "/")
             else:
                 if img.filepath:
-                    defold_tex_path = f"/{textures_dir_project}/{os.path.basename(bpy.path.abspath(img.filepath))}".replace("\\", "/")
+                    return f"/{textures_dir_project}/{os.path.basename(bpy.path.abspath(img.filepath))}".replace("\\", "/")
+        return ""
 
-    if not defold_tex_path:
-        defold_tex_path = DEFAULT_DEFOLD_TEXTURE
+    is_illumination = "illumination/materials/model.material" in defold_mat_path
 
-    return mat_name, defold_mat_path, defold_tex_path
+    samplers_dict = {}
+
+    if is_illumination:
+        diffuse_tex = _export_or_get_texture(find_basecolor_image_from_material(mat) if mat else None)
+        emission_tex = _export_or_get_texture(find_emission_image_from_material(mat) if mat else None)
+        specular_tex = _export_or_get_texture(find_specular_image_from_material(mat) if mat else None)
+        normal_tex = _export_or_get_texture(find_normal_image_from_material(mat) if mat else None)
+
+        empty_tex = "/illumination/textures/empty.png"
+        
+        samplers_dict["DIFFUSE_TEXTURE"] = diffuse_tex or DEFAULT_DEFOLD_TEXTURE
+        samplers_dict["DATA_TEXTURE"] = "/illumination/textures/data.png"
+        samplers_dict["LIGHT_TEXTURE"] = emission_tex or empty_tex
+        samplers_dict["SPECULAR_TEXTURE"] = specular_tex or empty_tex
+        samplers_dict["NORMAL_TEXTURE"] = normal_tex or empty_tex
+    else:
+        defold_tex_path = ""
+        if mat:
+            defold_tex_path = _get_custom_prop_str(mat, "defold_texture")
+        if not defold_tex_path and obj:
+            defold_tex_path = _get_custom_prop_str(obj, "defold_texture")
+            
+        if not defold_tex_path:
+            defold_tex_path = _export_or_get_texture(find_basecolor_image_from_material(mat) if mat else None)
+
+        if not defold_tex_path:
+            defold_tex_path = DEFAULT_DEFOLD_TEXTURE
+            
+        samplers_dict["tex0"] = defold_tex_path
+
+    return mat_name, defold_mat_path, samplers_dict
