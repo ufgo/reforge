@@ -25,16 +25,30 @@ def select_only(obj):
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-def export_glb_selected(abs_path: str):
-    bpy.ops.export_scene.gltf(
-        filepath=abs_path,
-        export_format='GLB',
-        use_selection=True,
-        export_apply=True,
-        export_yup=True,
-        export_materials='EXPORT',
-        export_animations=False,
-    )
+def export_glb_selected(abs_path: str, obj):
+    from mathutils import Matrix
+    
+    # Save original transform
+    orig_matrix = obj.matrix_world.copy()
+    
+    try:
+        # Snap to world origin so the .glb node has no transform offsets
+        obj.matrix_world = Matrix()
+        bpy.context.view_layer.update()
+        
+        bpy.ops.export_scene.gltf(
+            filepath=abs_path,
+            export_format='GLB',
+            use_selection=True,
+            export_apply=True,
+            export_yup=True,
+            export_materials='PLACEHOLDER',
+            export_animations=False,
+        )
+    finally:
+        # Restore transform silently
+        obj.matrix_world = orig_matrix
+        bpy.context.view_layer.update()
 
 def get_prop(obj, key):
     v = obj.get(key)

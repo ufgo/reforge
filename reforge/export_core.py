@@ -28,6 +28,7 @@ from .defold_formats import (
     make_model_text_multi,
     make_go_ref_model_text,
     make_collection_text_grouped_embedded,
+    extract_instance_component_properties,
 )
 
 from .bake import bake_color_emit_png
@@ -157,7 +158,7 @@ def export_single_prototype_assets(context, obj) -> str:
 
     # export GLB from selection
     select_only(obj)
-    export_glb_selected(abs_glb)
+    export_glb_selected(abs_glb, obj)
 
     # build .model material blocks
     blocks = []
@@ -174,27 +175,32 @@ def export_single_prototype_assets(context, obj) -> str:
 
             # Bake overrides tex0 path (works with complex materials / Ucupaint)
             if _material_prop_bool(mat, "bake_color_texture"):
-                bake_resolution = _material_prop_int(mat, "bake_resolution", 1024)
-                bake_padding = _material_prop_int(mat, "bake_padding", 8)
                 baked_filename = _make_baked_texture_filename(proto, mat_name)
-                baked_abs = os.path.join(abs_textures, baked_filename)
+                baked_tex_path = f"/{s.textures_dir}/{baked_filename}".replace("\\", "/")
 
-                # overwrite old baked file to avoid _1/_2 naming issues
-                safe_remove_file(baked_abs)
+                if s.export_textures:
+                    bake_resolution = _material_prop_int(mat, "bake_resolution", 1024)
+                    bake_padding = _material_prop_int(mat, "bake_padding", 8)
+                    baked_abs = os.path.join(abs_textures, baked_filename)
 
-                baked_ok = bake_color_emit_png(
-                    obj=obj,
-                    mat=mat,
-                    out_abs_path=baked_abs,
-                    resolution=bake_resolution,
-                    padding=bake_padding,
-                )
-                if baked_ok:
-                    baked_tex_path = f"/{s.textures_dir}/{baked_filename}".replace("\\", "/")
-                    if "DIFFUSE_TEXTURE" in samplers_dict:
-                        samplers_dict["DIFFUSE_TEXTURE"] = baked_tex_path
-                    else:
-                        samplers_dict["tex0"] = baked_tex_path
+                    # overwrite old baked file to avoid _1/_2 naming issues
+                    safe_remove_file(baked_abs)
+
+                    baked_ok = bake_color_emit_png(
+                        obj=obj,
+                        mat=mat,
+                        out_abs_path=baked_abs,
+                        resolution=bake_resolution,
+                        padding=bake_padding,
+                    )
+                    if not baked_ok:
+                        print(f"[Reforge][WARN] Failed to bake texture for {mat_name}")
+
+                # Even if we skip baking (export_textures is False), we still map the path
+                if "DIFFUSE_TEXTURE" in samplers_dict:
+                    samplers_dict["DIFFUSE_TEXTURE"] = baked_tex_path
+                else:
+                    samplers_dict["tex0"] = baked_tex_path
 
             blocks.append((mat_name, defold_mat_path, samplers_dict))
     else:
@@ -307,6 +313,16 @@ def run_export_scene(context) -> str:
         export_single_prototype_assets(context, objs[0])
         proto_to_go[proto] = f"/{s.prefabs_dir}/{proto}.go".replace("\\", "/")
 
+    # preserve existing component_properties from .collection if it already exists
+    abs_collection = os.path.join(abs_scenes, f"{s.collection_name}.collection")
+    preserved_comp_props = {}
+    if os.path.isfile(abs_collection):
+        try:
+            with open(abs_collection, "r", encoding="utf-8") as f:
+                preserved_comp_props = extract_instance_component_properties(f.read())
+        except Exception as e:
+            print(f"[Reforge][WARN] Failed to read existing collection for preserving properties: {e}")
+
     # create instance list per proto
     instances_by_proto = {}
     counters = {p: 0 for p in groups.keys()}
@@ -322,6 +338,7 @@ def run_export_scene(context) -> str:
                 "pos": pos,
                 "quat": quat,
                 "scale": scale,
+                "component_properties": preserved_comp_props.get(inst_id, []),
             })
 
     protos_sorted = sorted(groups.keys())
@@ -331,7 +348,6 @@ def run_export_scene(context) -> str:
         instances_by_proto
     )
 
-    abs_collection = os.path.join(abs_scenes, f"{s.collection_name}.collection")
     safe_remove_file(abs_collection)
     write_text_file(abs_collection, collection_text)
     return abs_collection

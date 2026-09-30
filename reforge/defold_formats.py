@@ -39,6 +39,91 @@ components {{
 }}
 '''
 
+def _brace_delta(line: str) -> int:
+    delta = 0
+    in_quotes = False
+    escape = False
+    for ch in line:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_quotes = not in_quotes
+            continue
+        if not in_quotes:
+            if ch == "{":
+                delta += 1
+            elif ch == "}":
+                delta -= 1
+    return delta
+
+
+def extract_instance_component_properties(collection_text: str) -> dict:
+    """
+    Parse existing .collection text and return a dict mapping:
+      instance_id -> list of raw '  component_properties { ... }\\n' text blocks
+    """
+    result = {}
+    depth = 0
+    in_instance = False
+    inst_id = None
+    comp_blocks = []
+    current_comp_lines = None
+    comp_start_depth = 0
+
+    for line in collection_text.splitlines(keepends=True):
+        stripped = line.strip()
+        delta = _brace_delta(line)
+
+        if depth == 0 and not in_instance:
+            if stripped.startswith("instances") and stripped.endswith("{") and delta == 1:
+                in_instance = True
+                inst_id = None
+                comp_blocks = []
+                current_comp_lines = None
+            depth += delta
+            continue
+
+        if in_instance:
+            if current_comp_lines is not None:
+                current_comp_lines.append(line)
+                depth += delta
+                if depth <= comp_start_depth:
+                    comp_blocks.append("".join(current_comp_lines))
+                    current_comp_lines = None
+                continue
+
+            if depth == 1:
+                if stripped.startswith("id:"):
+                    parts = stripped.split('"', 2)
+                    if len(parts) >= 2:
+                        inst_id = parts[1]
+                elif stripped.startswith("component_properties") and stripped.endswith("{") and delta == 1:
+                    comp_start_depth = depth
+                    current_comp_lines = [line]
+                    depth += delta
+                    continue
+
+            depth += delta
+            if depth <= 0:
+                if inst_id and comp_blocks:
+                    result[inst_id] = comp_blocks
+                in_instance = False
+                inst_id = None
+                comp_blocks = []
+                current_comp_lines = None
+                depth = 0
+        else:
+            depth += delta
+            if depth < 0:
+                depth = 0
+
+    return result
+
+
 def make_collection_text_grouped_embedded(collection_name: str, protos_sorted: list, instances_by_proto: dict) -> str:
     parts = [f'name: "{collection_name}"\n']
 
@@ -66,6 +151,11 @@ def make_collection_text_grouped_embedded(collection_name: str, protos_sorted: l
                 parts.append(f"    z: {qz:.6f}\n")
                 parts.append(f"    w: {qw:.6f}\n")
                 parts.append("  }\n")
+
+            for cp_block in inst.get("component_properties", []):
+                if not cp_block.endswith("\n"):
+                    cp_block += "\n"
+                parts.append(cp_block)
 
             if abs(sx - 1.0) > 1e-9 or abs(sy - 1.0) > 1e-9 or abs(sz - 1.0) > 1e-9:
                 parts.append("  scale3 {\n")
