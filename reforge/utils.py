@@ -42,7 +42,7 @@ def export_glb_selected(abs_path: str, obj):
             use_selection=True,
             export_apply=True,
             export_yup=True,
-            export_materials='PLACEHOLDER',
+            export_materials='EXPORT',
             export_animations=False,
         )
     finally:
