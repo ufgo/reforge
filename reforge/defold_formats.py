@@ -124,57 +124,49 @@ def extract_instance_component_properties(collection_text: str) -> dict:
     return result
 
 
-def make_collection_text_grouped_embedded(collection_name: str, protos_sorted: list, instances_by_proto: dict) -> str:
+def make_collection_text_grouped_embedded(
+    collection_name: str,
+    protos_sorted: list,
+    instances_by_proto: dict,
+    sub_collections: Optional[dict] = None,
+) -> str:
+    """
+    Generate a .collection text.
+
+    Main objects (no defold_collection):
+        root → <proto> → instances
+
+    Named sub-collections (defold_collection="col"):
+        root → col → instances   (flat, no intermediate proto layer)
+
+    sub_collections: optional dict { col_name: [inst_dict, ...] }
+    """
+    sub_collections = sub_collections or {}
     parts = [f'name: "{collection_name}"\n']
 
+    # ---- instances: main (grouped by proto) ----
     for proto in protos_sorted:
         for inst in instances_by_proto.get(proto, []):
-            px, py, pz = inst["pos"]
-            qx, qy, qz, qw = inst["quat"]
-            sx, sy, sz = inst["scale"]
+            parts.extend(_instance_block(inst))
 
-            parts.append("instances {\n")
-            parts.append(f'  id: "{inst["id"]}"\n')
-            parts.append(f'  prototype: "{inst["prototype"]}"\n')
-
-            if abs(px) > 1e-9 or abs(py) > 1e-9 or abs(pz) > 1e-9:
-                parts.append("  position {\n")
-                parts.append(f"    x: {px:.6f}\n")
-                parts.append(f"    y: {py:.6f}\n")
-                parts.append(f"    z: {pz:.6f}\n")
-                parts.append("  }\n")
-
-            if abs(qx) > 1e-9 or abs(qy) > 1e-9 or abs(qz) > 1e-9 or abs(qw - 1.0) > 1e-9:
-                parts.append("  rotation {\n")
-                parts.append(f"    x: {qx:.6f}\n")
-                parts.append(f"    y: {qy:.6f}\n")
-                parts.append(f"    z: {qz:.6f}\n")
-                parts.append(f"    w: {qw:.6f}\n")
-                parts.append("  }\n")
-
-            for cp_block in inst.get("component_properties", []):
-                if not cp_block.endswith("\n"):
-                    cp_block += "\n"
-                parts.append(cp_block)
-
-            if abs(sx - 1.0) > 1e-9 or abs(sy - 1.0) > 1e-9 or abs(sz - 1.0) > 1e-9:
-                parts.append("  scale3 {\n")
-                parts.append(f"    x: {sx:.6f}\n")
-                parts.append(f"    y: {sy:.6f}\n")
-                parts.append(f"    z: {sz:.6f}\n")
-                parts.append("  }\n")
-
-            parts.append("}\n")
+    # ---- instances: sub-collection objects (flat) ----
+    for col_name in sorted(sub_collections.keys()):
+        for inst in sub_collections[col_name]:
+            parts.extend(_instance_block(inst))
 
     parts.append("scale_along_z: 0\n")
 
+    # ---- embedded root ----
     parts.append("embedded_instances {\n")
     parts.append('  id: "root"\n')
     for proto in protos_sorted:
         parts.append(f'  children: "{proto}"\n')
+    for col_name in sorted(sub_collections.keys()):
+        parts.append(f'  children: "{col_name}"\n')
     parts.append('  data: ""\n')
     parts.append("}\n")
 
+    # ---- embedded proto groups (main objects) ----
     for proto in protos_sorted:
         parts.append("embedded_instances {\n")
         parts.append(f'  id: "{proto}"\n')
@@ -183,4 +175,55 @@ def make_collection_text_grouped_embedded(collection_name: str, protos_sorted: l
         parts.append('  data: ""\n')
         parts.append("}\n")
 
+    # ---- embedded sub-collection groups ----
+    for col_name in sorted(sub_collections.keys()):
+        parts.append("embedded_instances {\n")
+        parts.append(f'  id: "{col_name}"\n')
+        for inst in sub_collections[col_name]:
+            parts.append(f'  children: "{inst["id"]}"\n')
+        parts.append('  data: ""\n')
+        parts.append("}\n")
+
     return "".join(parts)
+
+
+def _instance_block(inst: dict) -> list:
+    """Return list of text parts for one instances {} block."""
+    px, py, pz = inst["pos"]
+    qx, qy, qz, qw = inst["quat"]
+    sx, sy, sz = inst["scale"]
+
+    parts = []
+    parts.append("instances {\n")
+    parts.append(f'  id: "{inst["id"]}"\n')
+    parts.append(f'  prototype: "{inst["prototype"]}"\n')
+
+    if abs(px) > 1e-9 or abs(py) > 1e-9 or abs(pz) > 1e-9:
+        parts.append("  position {\n")
+        parts.append(f"    x: {px:.6f}\n")
+        parts.append(f"    y: {py:.6f}\n")
+        parts.append(f"    z: {pz:.6f}\n")
+        parts.append("  }\n")
+
+    if abs(qx) > 1e-9 or abs(qy) > 1e-9 or abs(qz) > 1e-9 or abs(qw - 1.0) > 1e-9:
+        parts.append("  rotation {\n")
+        parts.append(f"    x: {qx:.6f}\n")
+        parts.append(f"    y: {qy:.6f}\n")
+        parts.append(f"    z: {qz:.6f}\n")
+        parts.append(f"    w: {qw:.6f}\n")
+        parts.append("  }\n")
+
+    for cp_block in inst.get("component_properties", []):
+        if not cp_block.endswith("\n"):
+            cp_block += "\n"
+        parts.append(cp_block)
+
+    if abs(sx - 1.0) > 1e-9 or abs(sy - 1.0) > 1e-9 or abs(sz - 1.0) > 1e-9:
+        parts.append("  scale3 {\n")
+        parts.append(f"    x: {sx:.6f}\n")
+        parts.append(f"    y: {sy:.6f}\n")
+        parts.append(f"    z: {sz:.6f}\n")
+        parts.append("  }\n")
+
+    parts.append("}\n")
+    return parts

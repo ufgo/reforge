@@ -10,7 +10,7 @@ from .materials import ensure_material_props
 from .utils import is_object_visible, sanitize_id
 
 # Keys to clear (exporter-created)
-OBJECT_EXPORT_KEYS = ("defold_prototype", "defold_collision", "collision_group", "collision_mask")
+OBJECT_EXPORT_KEYS = ("defold_prototype", "defold_collision", "collision_group", "collision_mask", "defold_collection")
 MATERIAL_EXPORT_KEYS = (
     "defold_material",
     "defold_texture",
@@ -111,10 +111,13 @@ def _set_properties_for_objects(context, objects):
         "col": 0, "col_skip": 0,
         "grp": 0, "grp_skip": 0,
         "msk": 0, "msk_skip": 0,
+        "dcol": 0, "dcol_skip": 0,
     }
 
     group_value = (s.set_collision_group_value or "").strip() or "default"
     mask_value = (s.set_collision_mask_value or "").strip() or "default"
+    raw_collection = (s.set_defold_collection_value or "").strip()
+    collection_value = sanitize_id(raw_collection) if raw_collection else ""
 
     for obj in objects:
         proto_value = compute_prototype_name(obj.name, s.detect_duplicates)
@@ -138,6 +141,12 @@ def _set_properties_for_objects(context, objects):
             changed["msk"] += 1
         else:
             changed["msk_skip"] += 1
+
+        # defold_collection: write even when empty string (to explicitly place in main collection)
+        if _set_custom_prop(obj, "defold_collection", collection_value, s.overwrite_collection):
+            changed["dcol"] += 1
+        else:
+            changed["dcol_skip"] += 1
 
     mats = _collect_materials_from_objects(objects)
     for m in mats:
@@ -221,7 +230,8 @@ class REFORGE_OT_set_selected(bpy.types.Operator):
             f"proto {ch['proto']}/{ch['proto_skip']} | "
             f"col {ch['col']}/{ch['col_skip']} | "
             f"group {ch['grp']}/{ch['grp_skip']} | "
-            f"mask {ch['msk']}/{ch['msk_skip']}"
+            f"mask {ch['msk']}/{ch['msk_skip']} | "
+            f"dcol {ch['dcol']}/{ch['dcol_skip']}"
         )
         return {'FINISHED'}
 
@@ -244,7 +254,8 @@ class REFORGE_OT_set_visible(bpy.types.Operator):
             f"proto {ch['proto']}/{ch['proto_skip']} | "
             f"col {ch['col']}/{ch['col_skip']} | "
             f"group {ch['grp']}/{ch['grp_skip']} | "
-            f"mask {ch['msk']}/{ch['msk_skip']}"
+            f"mask {ch['msk']}/{ch['msk_skip']} | "
+            f"dcol {ch['dcol']}/{ch['dcol_skip']}"
         )
         return {'FINISHED'}
 
@@ -267,7 +278,8 @@ class REFORGE_OT_set_all(bpy.types.Operator):
             f"proto {ch['proto']}/{ch['proto_skip']} | "
             f"col {ch['col']}/{ch['col_skip']} | "
             f"group {ch['grp']}/{ch['grp_skip']} | "
-            f"mask {ch['msk']}/{ch['msk_skip']}"
+            f"mask {ch['msk']}/{ch['msk_skip']} | "
+            f"dcol {ch['dcol']}/{ch['dcol_skip']}"
         )
         return {'FINISHED'}
 

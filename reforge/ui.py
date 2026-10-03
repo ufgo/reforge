@@ -56,6 +56,7 @@ class REFORGE_PT_panel(bpy.types.Panel):
             col.prop(s, "set_defold_collision_value")
             col.prop(s, "set_collision_group_value")
             col.prop(s, "set_collision_mask_value")
+            col.prop(s, "set_defold_collection_value")
             col.separator()
             col.prop(s, "detect_duplicates")
             col.separator()
@@ -66,6 +67,8 @@ class REFORGE_PT_panel(bpy.types.Panel):
             row = col.row()
             row.prop(s, "overwrite_collision_group")
             row.prop(s, "overwrite_collision_mask")
+            row = col.row()
+            row.prop(s, "overwrite_collection")
 
             col.separator()
             col.operator("reforge.set_selected", icon="RESTRICT_SELECT_OFF")

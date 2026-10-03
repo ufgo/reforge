@@ -280,7 +280,10 @@ def run_export_scene(context) -> str:
               ├─ <protoA> -> children instances
               ├─ <protoB> -> children instances
               ...
-    Returns absolute path to generated .collection
+      - for each unique non-empty defold_collection value found on objects,
+        generate a separate <col_name>.collection where all instances are
+        direct children of the embedded 'root' node.
+    Returns absolute path to generated main .collection
     """
     s = context.scene.reforge_settings
     project_root = s.project_root
@@ -290,8 +293,9 @@ def run_export_scene(context) -> str:
     abs_scenes = os.path.join(project_root, s.scenes_dir)
     ensure_dir(abs_scenes)
 
-    # group objects by prototype
-    groups = {}
+    # group objects by prototype; track defold_collection per object
+    groups = {}       # proto -> list of obj (all objs sharing that proto)
+    obj_collection = {}  # obj -> collection name (str, may be "")
     view_layer = context.view_layer
     for obj in context.scene.objects:
         if obj.type != "MESH":
@@ -304,6 +308,10 @@ def run_export_scene(context) -> str:
         proto = sanitize_id(proto)
         groups.setdefault(proto, []).append(obj)
 
+        raw_col = get_prop(obj, "defold_collection")
+        col_name = (str(raw_col).strip() if raw_col is not None else "")
+        obj_collection[id(obj)] = col_name
+
     if not groups:
         raise RuntimeError("No MESH objects with 'defold_prototype' found (with current visibility filter).")
 
@@ -313,18 +321,32 @@ def run_export_scene(context) -> str:
         export_single_prototype_assets(context, objs[0])
         proto_to_go[proto] = f"/{s.prefabs_dir}/{proto}.go".replace("\\", "/")
 
-    # preserve existing component_properties from .collection if it already exists
-    abs_collection = os.path.join(abs_scenes, f"{s.collection_name}.collection")
+    # ----------------------------------------------------------------
+    # Build instance data for MAIN collection (defold_collection == "")
+    # and per-named sub-collections
+    # ----------------------------------------------------------------
+
+    # Load existing component_properties from main collection
+    abs_main_collection = os.path.join(abs_scenes, f"{s.collection_name}.collection")
     preserved_comp_props = {}
-    if os.path.isfile(abs_collection):
+    if os.path.isfile(abs_main_collection):
         try:
-            with open(abs_collection, "r", encoding="utf-8") as f:
+            with open(abs_main_collection, "r", encoding="utf-8") as f:
                 preserved_comp_props = extract_instance_component_properties(f.read())
         except Exception as e:
             print(f"[Reforge][WARN] Failed to read existing collection for preserving properties: {e}")
 
-    # create instance list per proto
-    instances_by_proto = {}
+    # Discover all sub-collection names
+    all_col_names: set[str] = set()
+    for proto, objs in groups.items():
+        for obj in objs:
+            col_name = obj_collection[id(obj)]
+            if col_name:
+                all_col_names.add(col_name)
+
+    # Build instance lists
+    main_instances_by_proto = {}
+    sub_instances: dict[str, list] = {col_name: [] for col_name in all_col_names}
     counters = {p: 0 for p in groups.keys()}
 
     for proto, objs in groups.items():
@@ -332,22 +354,31 @@ def run_export_scene(context) -> str:
             counters[proto] += 1
             inst_id = f"{proto}_{counters[proto]:03d}"
             pos, quat, scale = to_defold_trs(obj)
-            instances_by_proto.setdefault(proto, []).append({
+            col_name = obj_collection[id(obj)]
+
+            inst_data = {
                 "id": inst_id,
                 "prototype": proto_to_go[proto],
                 "pos": pos,
                 "quat": quat,
                 "scale": scale,
                 "component_properties": preserved_comp_props.get(inst_id, []),
-            })
+            }
 
-    protos_sorted = sorted(groups.keys())
+            if col_name:
+                sub_instances[col_name].append(inst_data)
+            else:
+                main_instances_by_proto.setdefault(proto, []).append(inst_data)
+
+    # Write single .collection with sub-collection groups embedded inside
+    protos_sorted = sorted(p for p in groups.keys() if p in main_instances_by_proto)
     collection_text = make_collection_text_grouped_embedded(
         s.collection_name,
         protos_sorted,
-        instances_by_proto
+        main_instances_by_proto,
+        sub_collections=sub_instances,
     )
+    safe_remove_file(abs_main_collection)
+    write_text_file(abs_main_collection, collection_text)
 
-    safe_remove_file(abs_collection)
-    write_text_file(abs_collection, collection_text)
-    return abs_collection
+    return abs_main_collection
