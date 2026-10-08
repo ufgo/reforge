@@ -32,13 +32,15 @@ class ReforgeSettings(bpy.types.PropertyGroup):
     overwrite_collision: BoolProperty(name="Overwrite defold_collision", default=False)
     overwrite_collision_group: BoolProperty(name="Overwrite collision_group", default=False)
     overwrite_collision_mask: BoolProperty(name="Overwrite collision_mask", default=False)
-    overwrite_collection: BoolProperty(name="Overwrite defold_collection", default=False)
+    overwrite_group: BoolProperty(name="Overwrite defold_group", default=False)
+    overwrite_group_center: BoolProperty(name="Overwrite group_center", default=False)
 
     # Tools values
     set_defold_collision_value: BoolProperty(name="Set defold_collision", default=False)
     set_collision_group_value: StringProperty(name="Collision group", default="default")
     set_collision_mask_value: StringProperty(name="Collision mask", default="default")
-    set_defold_collection_value: StringProperty(name="Collection (empty = main)", default="")
+    set_defold_group_value: StringProperty(name="Group (empty = root)", default="")
+    set_group_center_value: BoolProperty(name="Set group_center", default=False)
 
     # Duplicate detection
     detect_duplicates: BoolProperty(name="Detect duplicates (.001, .002, etc -> base name)",default=False)

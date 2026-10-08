@@ -28,6 +28,7 @@ from .defold_formats import (
     make_model_text_multi,
     make_go_ref_model_text,
     make_collection_text_grouped_embedded,
+    parse_existing_collection,
     extract_instance_component_properties,
 )
 
@@ -58,19 +59,27 @@ def get_collision_mask(obj) -> str:
     return v if v else "default"
 
 
+def matrix_to_defold_trs(matrix):
+    """
+    Convert a 4x4 matrix to Defold-friendly TRS using axis conversion.
+    Returns:
+      pos (x,y,z), quat (x,y,z,w), scale (x,y,z)
+    """
+    c = AXIS_CONVERT
+    mw_def = c @ matrix @ c.inverted()
+    loc = mw_def.to_translation()
+    rot = mw_def.to_quaternion()
+    scl = mw_def.to_scale()
+    return (loc.x, loc.y, loc.z), (rot.x, rot.y, rot.z, rot.w), (scl.x, scl.y, scl.z)
+
+
 def to_defold_trs(obj):
     """
     Convert Blender world transform to Defold-friendly TRS using axis conversion.
     Returns:
       pos (x,y,z), quat (x,y,z,w), scale (x,y,z)
     """
-    mw = obj.matrix_world.copy()
-    c = AXIS_CONVERT
-    mw_def = c @ mw @ c.inverted()
-    loc = mw_def.to_translation()
-    rot = mw_def.to_quaternion()
-    scl = mw_def.to_scale()
-    return (loc.x, loc.y, loc.z), (rot.x, rot.y, rot.z, rot.w), (scl.x, scl.y, scl.z)
+    return matrix_to_defold_trs(obj.matrix_world)
 
 
 def _make_baked_texture_filename(proto: str, mat_name: str) -> str:
@@ -280,9 +289,8 @@ def run_export_scene(context) -> str:
               ├─ <protoA> -> children instances
               ├─ <protoB> -> children instances
               ...
-      - for each unique non-empty defold_collection value found on objects,
-        generate a separate <col_name>.collection where all instances are
-        direct children of the embedded 'root' node.
+      - for each unique non-empty defold_group value found on objects,
+        grouped as an embedded instance directly under 'root'.
     Returns absolute path to generated main .collection
     """
     s = context.scene.reforge_settings
@@ -293,9 +301,9 @@ def run_export_scene(context) -> str:
     abs_scenes = os.path.join(project_root, s.scenes_dir)
     ensure_dir(abs_scenes)
 
-    # group objects by prototype; track defold_collection per object
+    # group objects by prototype; track defold_group per object
     groups = {}       # proto -> list of obj (all objs sharing that proto)
-    obj_collection = {}  # obj -> collection name (str, may be "")
+    obj_group = {}    # obj -> group name (str, may be "")
     view_layer = context.view_layer
     for obj in context.scene.objects:
         if obj.type != "MESH":
@@ -308,9 +316,11 @@ def run_export_scene(context) -> str:
         proto = sanitize_id(proto)
         groups.setdefault(proto, []).append(obj)
 
-        raw_col = get_prop(obj, "defold_collection")
-        col_name = (str(raw_col).strip() if raw_col is not None else "")
-        obj_collection[id(obj)] = col_name
+        raw_grp = get_prop(obj, "defold_group")
+        if raw_grp is None:
+            raw_grp = get_prop(obj, "defold_collection")
+        grp_name = (str(raw_grp).strip() if raw_grp is not None else "")
+        obj_group[id(obj)] = grp_name
 
     if not groups:
         raise RuntimeError("No MESH objects with 'defold_prototype' found (with current visibility filter).")
@@ -322,39 +332,77 @@ def run_export_scene(context) -> str:
         proto_to_go[proto] = f"/{s.prefabs_dir}/{proto}.go".replace("\\", "/")
 
     # ----------------------------------------------------------------
-    # Build instance data for MAIN collection (defold_collection == "")
-    # and per-named sub-collections
+    # Build instance data for MAIN collection (defold_group == "")
+    # and per-named sub-groups
     # ----------------------------------------------------------------
 
-    # Load existing component_properties from main collection
+    # Load existing collection data (component_properties, embedded instances, etc.)
     abs_main_collection = os.path.join(abs_scenes, f"{s.collection_name}.collection")
-    preserved_comp_props = {}
+    preserved_data = {}
     if os.path.isfile(abs_main_collection):
         try:
             with open(abs_main_collection, "r", encoding="utf-8") as f:
-                preserved_comp_props = extract_instance_component_properties(f.read())
+                preserved_data = parse_existing_collection(f.read())
         except Exception as e:
             print(f"[Reforge][WARN] Failed to read existing collection for preserving properties: {e}")
 
-    # Discover all sub-collection names
-    all_col_names: set[str] = set()
+    preserved_comp_props = preserved_data.get("instance_comp_props", {})
+
+    # Discover all group names
+    all_group_names: set[str] = set()
     for proto, objs in groups.items():
         for obj in objs:
-            col_name = obj_collection[id(obj)]
-            if col_name:
-                all_col_names.add(col_name)
+            grp_name = obj_group[id(obj)]
+            if grp_name:
+                all_group_names.add(grp_name)
+
+    # Discover group centers if specified (via group_center / defold_group_center custom prop)
+    group_centers = {}
+    for obj in context.scene.objects:
+        if s.export_visible_only and not is_object_visible(obj, view_layer):
+            continue
+        raw_grp = get_prop(obj, "defold_group")
+        if raw_grp is None:
+            raw_grp = get_prop(obj, "defold_collection")
+        grp_name = (str(raw_grp).strip() if raw_grp is not None else "")
+        if not grp_name:
+            continue
+        is_center = bool(get_prop(obj, "defold_group_center")) or bool(get_prop(obj, "group_center"))
+        if is_center and grp_name not in group_centers:
+            group_centers[grp_name] = obj
+
+    group_center_rigids = {}
+    group_transforms = {}
+    for grp_name, center_obj in group_centers.items():
+        mw_center = center_obj.matrix_world.copy()
+        loc = mw_center.to_translation()
+        rot = mw_center.to_quaternion()
+        m_rigid = Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
+        group_center_rigids[grp_name] = m_rigid
+        pos, quat, _ = matrix_to_defold_trs(m_rigid)
+        group_transforms[grp_name] = {
+            "pos": pos,
+            "quat": quat,
+            "scale": (1.0, 1.0, 1.0),
+        }
 
     # Build instance lists
     main_instances_by_proto = {}
-    sub_instances: dict[str, list] = {col_name: [] for col_name in all_col_names}
+    sub_instances: dict[str, list] = {grp_name: [] for grp_name in all_group_names}
     counters = {p: 0 for p in groups.keys()}
 
     for proto, objs in groups.items():
         for obj in objs:
             counters[proto] += 1
             inst_id = f"{proto}_{counters[proto]:03d}"
-            pos, quat, scale = to_defold_trs(obj)
-            col_name = obj_collection[id(obj)]
+            grp_name = obj_group[id(obj)]
+
+            if grp_name and grp_name in group_center_rigids:
+                m_rigid = group_center_rigids[grp_name]
+                m_local = m_rigid.inverted() @ obj.matrix_world
+                pos, quat, scale = matrix_to_defold_trs(m_local)
+            else:
+                pos, quat, scale = to_defold_trs(obj)
 
             inst_data = {
                 "id": inst_id,
@@ -365,8 +413,8 @@ def run_export_scene(context) -> str:
                 "component_properties": preserved_comp_props.get(inst_id, []),
             }
 
-            if col_name:
-                sub_instances[col_name].append(inst_data)
+            if grp_name:
+                sub_instances[grp_name].append(inst_data)
             else:
                 main_instances_by_proto.setdefault(proto, []).append(inst_data)
 
@@ -377,6 +425,8 @@ def run_export_scene(context) -> str:
         protos_sorted,
         main_instances_by_proto,
         sub_collections=sub_instances,
+        preserved_data=preserved_data,
+        group_transforms=group_transforms,
     )
     safe_remove_file(abs_main_collection)
     write_text_file(abs_main_collection, collection_text)
