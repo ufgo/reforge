@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 id = "reforge"
 name = "Reforge"
-version = "0.5.2"
+version = "0.6.0"
 
 tagline = "Reforge Blender scenes into Defold assets"
 

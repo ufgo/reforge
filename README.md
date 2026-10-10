@@ -247,7 +247,7 @@ To prevent Blender's glTF exporter from embedding arbitrary world-space translat
 
 ## Changelog
 
-For a detailed file-by-file comparison and migration report between the initial public release (v0.5.1) and the current version, see [changelog.txt](changelog.txt).
+See [changelog.txt](changelog.txt) for the full list of changes and version history.
 
 ---
 

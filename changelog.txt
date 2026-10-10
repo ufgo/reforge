@@ -1,296 +1,99 @@
 ================================================================================
-REFORGE - COMPARATIVE CHANGELOG & MIGRATION REPORT
-Old Public Release (defold-export-for-blender-main, v0.5.1)
-vs
-Current Enhanced Version (reforge, v0.5.2+ / illumination)
+REFORGE - CHANGELOG
+Blender to Defold Exporter Add-on & Extension
 ================================================================================
 
-This document provides a comprehensive file-by-file comparison and detailed
-list of improvements, refactorings, and newly introduced features between:
-  OLD VERSION: /Users/alexanderbulatov/Downloads/defold-export-for-blender-main
-  NEW VERSION: /Users/alexanderbulatov/Documents/projects/reforge
+All notable changes to this project will be documented in this file.
 
 
 ================================================================================
-TABLE OF CONTENTS
-================================================================================
-1. High-Level Summary & File-by-File Diff Metrics
-2. Direct File-by-File Comparison (OLD vs NEW)
-   - reforge/bake.py (NEW FILE)
-   - reforge/defold_formats.py
-   - reforge/export_core.py
-   - reforge/materials.py
-   - reforge/operators.py
-   - reforge/ui.py
-   - reforge/settings.py
-   - reforge/utils.py
-   - reforge/blender_manifest.toml
-   - reforge/__init__.py
-   - README.md & Assets
-3. Key Behavioral Changes & Bug Fixes
-4. Migration & Compatibility Notes
-
-
-================================================================================
-1. HIGH-LEVEL SUMMARY & FILE-BY-FILE DIFF METRICS
+Version 0.6.0
 ================================================================================
 
-Total lines changed across codebase: ~1,900+ lines added/modified.
+What's New:
+-----------
+- Texture Baking Pipeline:
+  * In-engine color texture baking via Cycles unlit EMIT pass.
+  * Full support for complex node setups, including Ucupaint layered textures,
+    procedural shaders (Noise, Voronoi, ColorRamp), and vertex colors.
+  * Solid color fallback: automatically generates a 1x1 solid PNG for meshes
+    without UV unwrapping if a constant color is detected.
+  * Per-material bake settings (enable/disable, resolution 512-4096, padding margin).
+  * Safe environment isolation: automatically switches scene engine to Cycles
+    for baking and restores previous render engine and bake settings afterwards.
+  * Material slot isolation: prevents "No active image found" errors from unused slots.
 
-File Diff Summary:
-- reforge/bake.py              : +475 lines (Brand new texture baking module)
-- reforge/defold_formats.py    : -56 lines, +403 lines (Smart parser & merge engine)
-- reforge/export_core.py       : -41 lines, +274 lines (Pipeline, groups, bake integration)
-- reforge/materials.py         : -21 lines, +91 lines (Multi-sampler & Illumination)
-- reforge/operators.py         : -27 lines, +155 lines (Duplicate detection & group tools)
-- reforge/ui.py                : -15 lines, +38 lines (Material tab panel, tool controls)
-- reforge/settings.py          : -2 lines, +8 lines (Group & duplicate properties)
-- reforge/utils.py             : -10 lines, +24 lines (GLB world origin snap fix)
-- reforge/blender_manifest.toml: -20 lines, +5 lines (Blender 4.2+ extension format)
-- reforge/__init__.py          : Version bump to 0.5.2, Blender target 4.2.0
+- Multi-Sampler Materials & Defold Illumination:
+  * Added multi-sampler texture support to `.model` export.
+  * Native integration with Astrochili's Defold Illumination forward-shading library:
+    automatically extracts and maps all 5 samplers (DIFFUSE_TEXTURE, DATA_TEXTURE,
+    LIGHT_TEXTURE, SPECULAR_TEXTURE, NORMAL_TEXTURE).
+  * Intelligent Principled BSDF node traversal, including support for ShaderNodeNormalMap.
+  * Automatic assignment of `/illumination/textures/empty.png` to unlinked slots.
 
+- Non-Destructive Scene Re-exports:
+  * Re-exporting a `.collection` now parses and preserves existing Defold scene data.
+  * Retains instance `component_properties` (script properties, uniforms, tint) set in Defold.
+  * Retains custom `embedded_instances` (lights, cameras, custom GOs, scripts) created in Defold.
+  * Retains `collection_instances` (referenced sub-collections) and `scale_along_z` settings.
 
-================================================================================
-2. DIRECT FILE-BY-FILE COMPARISON (OLD vs NEW)
-================================================================================
+- Sub-Collections & Group Pivots:
+  * Support for `defold_group` custom property to organize objects into named
+    embedded groups in Defold (`root -> <group_name> -> instances`).
+  * Support for `group_center` / `defold_group_center`: calculates rigid transform
+    for the group pivot and exports child instances with relative local transforms.
 
---------------------------------------------------------------------------------
-A) reforge/bake.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Did NOT exist.
-- Materials were limited strictly to static image textures directly plugged into
-  the "Base Color" socket of Principled BSDF.
-- Complex shaders, Ucupaint layers, procedural textures (Noise, Voronoi, ColorRamp),
-  and Vertex Colors could NOT be exported to Defold.
+- Prototype Duplicate Detection:
+  * Added "Detect duplicates" option in Tools panel: automatically maps numeric Blender
+    clones (`Rock.001`, `Rock.002`) to the base prototype (`Rock`).
+  * Duplicates share a single `.glb`, `.model`, and `.go` asset while keeping unique
+    world transforms in `.collection`, drastically reducing disk space and build size.
 
-NEW (Current):
-- Fully featured 475-line baking pipeline (`bake_color_emit_png`).
-- Traverses complex shader node graphs, linking color sources into an unlit
-  Cycles Emission node for pure albedo extraction without light/shadow artifacts.
-- Fallback to Cycles Diffuse Color-only pass if EMIT graph construction fails.
-- Solid color fallback: If a mesh has no UVs, detects constant base color and
-  generates a 1x1 solid PNG albedo, preventing failed exports.
-- Slot isolation: Temporarily clears other material slots during bake to eliminate
-  Blender's "No active image found in material slot" error.
-- Safe environment: Switches scene render engine to Cycles for baking and cleanly
-  restores previous engine (EEVEE/Workbench) and bake settings in a `finally` block.
-- Automatically wires generated `<proto>__<mat>_albedo.png` into `.model` samplers.
+- Dedicated Material UI:
+  * Added Reforge panel in Blender's Material tab (Properties -> Material -> Reforge).
+  * Direct configuration for Defold Material path, Defold Texture path, and texture
+    baking options (toggle, resolution, padding).
 
-
---------------------------------------------------------------------------------
-B) reforge/defold_formats.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Total length: 92 lines.
-- `make_model_text_multi`: accepted `List[Tuple[str, str, str]]`. Hardcoded a single
-  sampler block per material:
-      textures {
-        sampler: "tex0"
-        texture: "<path>"
-      }
-- `make_collection_text_grouped_embedded`: generated `.collection` strictly from
-  scratch (~30 lines). Completely overwrote the `.collection` file, wiping out any
-  manual edits made inside Defold.
-- Only supported flat instance lists under a single proto group.
-- `scale_along_z` was hardcoded to 0.
-
-NEW (Current):
-- Total length: 439 lines (+347 lines of new logic).
-- Multi-sampler support: `make_model_text_multi` accepts `List[Tuple[str, str, dict]]`.
-  Iterates over the samplers dictionary, outputting multiple `textures { sampler: ... }`
-  blocks per material slot.
-- Intelligent `.collection` parser & merge engine:
-  * `parse_existing_collection(collection_text)`: parses Defold's protobuf-like syntax.
-  * Preserves `component_properties` set on instances in the Defold Editor
-    (e.g., custom script properties, tint, health, uniforms).
-  * Preserves custom `embedded_instances` (manually added game objects, scripts,
-    lights, cameras, particle systems created inside Defold).
-  * Preserves `collection_instances` (sub-collections referenced in Defold).
-  * Preserves existing `scale_along_z` value.
-- Sub-collection & group support:
-  * `make_collection_text_grouped_embedded` supports `sub_collections` and `group_transforms`.
-  * Outputs named sub-groups (`root -> <group_name> -> instances`) alongside
-    prototype groups (`root -> <proto> -> instances`).
-  * Emits transforms on group embedded instances when group pivots are defined.
+- Object-Level Overrides:
+  * Support for `defold_material` and `defold_texture` custom properties directly on
+    mesh objects, overriding material defaults per object.
 
 
---------------------------------------------------------------------------------
-C) reforge/export_core.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Total length: 200 lines.
-- Did not read or preserve existing `.collection` files.
-- Did not support texture baking.
-- Did not support named sub-collection grouping (`defold_group`).
-- Did not support group pivot centers.
-- Passed single texture string to `.model` generator.
-
-NEW (Current):
-- Total length: 435 lines (+235 lines).
-- Integrates texture baking:
-  * Detects `bake_color_texture` on materials.
-  * Ensures texture directories and executes `bake_color_emit_png`.
-  * Wires baked texture paths into samplers (`DIFFUSE_TEXTURE` or `tex0`).
-- Non-destructive collection pipeline:
-  * Before generating the `.collection`, checks if the file exists and parses it
-    with `parse_existing_collection`.
-  * Injects preserved `component_properties` back into each exported instance.
-- Sub-collection grouping & pivot calculation:
-  * Groups objects by `defold_group` (or `defold_collection`).
-  * Discovers group centers marked with `group_center` or `defold_group_center`.
-  * Computes rigid transform matrix of the center object:
-      m_rigid = Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
-  * Converts child instances to local coordinates relative to the group pivot:
-      m_local = m_rigid.inverted() @ obj.matrix_world
-  * Exports group transform on the embedded group node in Defold.
-- Added `matrix_to_defold_trs(matrix)` for converting arbitrary transformation matrices.
-
-
---------------------------------------------------------------------------------
-D) reforge/materials.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Only had `find_basecolor_image_from_material(mat)`.
-- Looked strictly at Base Color / Color socket.
-- `resolve_defold_material_and_texture_for_material`:
-  * Signature: `(settings, mat, abs_textures_dir, textures_dir_project)`
-  * Did not accept `obj` (no object-level overrides).
-  * Returned `(mat_name, defold_mat_path, defold_tex_path)` tuple with single texture string.
-  * No multi-sampler logic, no Defold Illumination awareness.
-
-NEW (Current):
-- Added `ensure_material_props(mat)` for automatic initialization of custom properties.
-- Refactored image search into generic `find_image_for_principled_input(mat, input_names)`.
-- Added dedicated finders:
-  * `find_emission_image_from_material` (Emission, Emission Color)
-  * `find_specular_image_from_material` (Specular, Specular IOR Level, Roughness)
-  * `find_normal_image_from_material` (Normal)
-- Added `NORMAL_MAP` node traversal: walks through `ShaderNodeNormalMap` to extract
-  the image connected to its "Color" input socket.
-- Object-level property overrides:
-  * `resolve_defold_material_and_texture_for_material` now accepts `obj`.
-  * Checks `obj["defold_material"]` and `obj["defold_texture"]` as fallbacks before
-    defaulting to add-on UI settings.
-- Native Defold Illumination library integration:
-  * Detects `illumination/materials/model.material` in Defold material path.
-  * Populates 5 samplers: `DIFFUSE_TEXTURE`, `DATA_TEXTURE`, `LIGHT_TEXTURE`,
-    `SPECULAR_TEXTURE`, `NORMAL_TEXTURE`.
-  * Uses `/illumination/textures/empty.png` for unlinked slots and `/builtins/...` logo fallback.
-- Returns `Tuple[str, str, dict]` containing full sampler dictionary.
-
-
---------------------------------------------------------------------------------
-E) reforge/operators.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- `Set Props` operators set prototype name directly from `obj.name`.
-- Did not handle duplicates (`.001`, `.002`).
-- Did not set `defold_group` or `defold_group_center`.
-- `Safe Clear` operators only removed 6 basic keys:
-  Object: `defold_prototype`, `defold_collision`, `collision_group`, `collision_mask`
-  Material: `defold_material`, `defold_texture`
-
-NEW (Current):
-- Duplicate detection:
-  * Added `compute_prototype_name(obj_name, detect_duplicates)` with regex `_DUPLICATE_SUFFIX_RE`.
-  * Automatically strips numeric suffixes (`Prop.001` -> `Prop`).
-- Extended `Set Props` operators:
-  * Sets `defold_group` (with `overwrite_group` toggle).
-  * Sets `defold_group_center` (with `overwrite_group_center` toggle).
-  * Automatically calls `ensure_material_props` on all materials assigned to objects.
-  * Extended status report: reports counts for proto, col, grp, msk, dgrp, and cntr.
-- Extended `Safe Clear` operators:
-  * Safely removes all new object keys: `defold_group`, `defold_collection`,
-    `defold_group_center`, `group_center`.
-  * Safely removes all new material keys: `bake_color_texture`, `bake_resolution`,
-    `bake_padding`.
-
-
---------------------------------------------------------------------------------
-F) reforge/ui.py & reforge/settings.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Had a "Textures" foldout box inside the main 3D Viewport N-panel with static text
-  explaining manual custom property creation.
-- Users had to manually type string properties in Blender's raw "Custom Properties" list.
-- No controls for duplicate detection, groups, or group pivots.
-
-NEW (Current):
-- Removed obsolete "Textures" foldout from 3D Viewport N-panel.
-- Added dedicated Material Properties panel: `REFORGE_PT_material_props`
-  (located in Properties window -> Material tab -> Reforge):
-  * Input for Defold Material path.
-  * Input for Defold Texture path.
-  * Toggle for "Bake Color Texture (PNG)".
-  * Inputs for "Bake Resolution" and "Bake Padding" (conditionally enabled when bake is on).
-- Added new settings in `ReforgeSettings`:
-  * `detect_duplicates` (bool)
-  * `set_defold_group_value` (string)
-  * `set_group_center_value` (bool)
-  * `overwrite_group` (bool)
-  * `overwrite_group_center` (bool)
-
-
---------------------------------------------------------------------------------
-G) reforge/utils.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- `export_glb_selected(abs_path: str)`: exported GLB with whatever world transform
-  the object currently had in the scene.
-- BUG: Blender's glTF exporter with `export_apply=True` preserved world position offsets
-  in the GLB node, causing double-transform offsets when instantiated in Defold.
-
-NEW (Current):
-- `export_glb_selected(abs_path: str, obj)`:
-  * Saves `orig_matrix = obj.matrix_world.copy()`.
-  * Snaps object to world origin (`obj.matrix_world = Matrix()`) before glTF export.
-  * Silently restores `obj.matrix_world = orig_matrix` in a `finally` block.
-  * Guarantees that exported `.glb` mesh data is centered at origin with zero offset.
-
-
---------------------------------------------------------------------------------
-H) reforge/blender_manifest.toml & reforge/__init__.py
---------------------------------------------------------------------------------
-OLD (defold-export-for-blender-main):
-- Manifest: `schema_version = "1.0"`, `version = "0.5.1"`, `blender_version_min = "3.6.0"`,
-  license MIT.
-- `__init__.py`: version `(0, 5, 1)`, blender target `(3, 6, 0)`.
-
-NEW (Current):
-- Manifest: `schema_version = "1.0.0"`, `version = "0.5.2"`, `blender_version_min = "4.2.0"`,
-  license `SPDX:GPL-3.0-or-later`.
-- Fully conforms to the new Blender 4.2+ Extensions platform (one-click install & auto updates).
-- `__init__.py`: version updated to `(0, 5, 2)`, blender target `(4, 2, 0)`.
+Fixes & Improvements:
+---------------------
+- Fix GLB Transform Offsets:
+  * Prototypes are temporarily snapped to the world origin `(0, 0, 0)` during `.glb` export
+    and restored afterwards, eliminating double-transformation offsets in Defold instances.
+- Optimization & Asset Size:
+  * Disabled animation export (`export_animations=False`) for static prototypes to reduce GLB file size.
+  * External texture export: textures are saved to `assets/textures/` rather than being
+    redundantly packed inside binary GLB containers.
+  * Duplicate textures are overwritten by filename, preventing `_1.png`, `_2.png` duplicates.
+- Extended Tools & Safe Clear:
+  * Updated "Set Props" operators to handle sub-groups, group pivots, and duplicate detection.
+  * Updated "Clear Export Props" operators with confirmation dialogs to safely remove
+    all exporter-created object and material properties without affecting user data.
 
 
 ================================================================================
-3. SUMMARY OF BEHAVIORAL CHANGES
+Version 0.5.2
 ================================================================================
 
-1. Collection File Handling:
-   - OLD: Overwrote `.collection` completely.
-   - NEW: Intelligently parses and preserves Defold components, scripts, embedded
-          instances, and collection instances.
+- Migrated to the modern Blender 4.2+ Extensions platform (`blender_manifest.toml`).
+- Added support for one-click installation and automatic updates via Blender Extensions.
+- Updated license to GPL-3.0-or-later.
+- Minimum supported Blender version set to 4.2.0.
 
-2. Complex Shader Support:
-   - OLD: None. Only direct Image Texture nodes to Base Color.
-   - NEW: Full baking pipeline supporting Ucupaint, procedural nodes, vertex colors,
-          and solid color fallback for no-UV meshes.
 
-3. Material Models:
-   - OLD: Single sampler `tex0`.
-   - NEW: Arbitrary multi-sampler dictionaries with native Defold Illumination 5-sampler
-          mapping (Diffuse, Data, Light, Specular, Normal).
+================================================================================
+Version 0.5.1
+================================================================================
 
-4. Cloned Objects / Duplicates:
-   - OLD: `Rock.001`, `Rock.002` created separate prototype assets.
-   - NEW: `detect_duplicates` maps clones to base prototype `Rock`, sharing assets.
-
-5. Hierarchy & Pivots:
-   - OLD: Flat prototype groups only (`root -> <proto> -> instances`).
-   - NEW: Sub-collection grouping (`defold_group`) and group pivot centers (`group_center`).
-
-6. Asset Transforms:
-   - OLD: GLB could contain world position offsets.
-   - NEW: GLB is always cleanly centered at origin via temporary matrix snapping.
+- Initial public release of Reforge (Defold Scene Exporter):
+  * Scene export to Defold `.collection` format with matching transforms.
+  * Prototype asset export (`.glb`, `.model`, and `.go` prefabs).
+  * Prefab protection: `.go` files created once, never overwritten.
+  * Basic multi-material `.model` generation with `tex0` sampler.
+  * Convex collision export (`.convexshape` and `.collisionobject`).
+  * Texture export to `assets/textures/`.
+  * Safe cleanup tools for exporter custom properties.
