@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Reforge",
     "author": "Alexander Bulatov",
-    "version": (0, 5, 1),
+    "version": (0, 5, 2),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Reforge",
     "description": "Reforge Blender scenes into Defold assets and collections.",
