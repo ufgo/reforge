@@ -1,4 +1,10 @@
+# macOS metadata
 .DS_Store
-reforge/reforge-0.5.1.zip
-.DS_Store
+**/.DS_Store
+
+# Archives
 *.zip
+
+# Python cache
+__pycache__/
+*.py[cod]
