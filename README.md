@@ -69,6 +69,8 @@ Open **Properties → Material tab → Reforge**:
 - **Generate Scene (`.collection`)**: Exports all prototype assets (`.glb`, `.model`, `.go`, collisions, baked textures) and generates or updates the Defold `.collection`.
 - **Export Selected Prototype (No Scene)**: Quickly refresh assets for only the selected prototype without modifying the scene file.
 - **Export All Prototypes (No Scene)**: Refresh all prototype assets without touching the collection.
+- **Export Selected (GLB Only)**: Export only the `.glb` mesh for selected prototype(s) directly into Defold models folder, without modifying `.model`, `.go`, collisions, or baking.
+- **Export ALL Prototypes (GLB Only)**: Refresh all prototype `.glb` meshes in the scene.
 
 ---
 

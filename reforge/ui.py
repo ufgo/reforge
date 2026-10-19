@@ -39,6 +39,10 @@ class REFORGE_PT_panel(bpy.types.Panel):
             col.separator()
             col.operator("reforge.export_selected_prototype", icon="EXPORT")
             col.operator("reforge.export_all_prototypes", icon="EXPORT")
+            col.separator()
+            col.label(text="Mesh only (.glb):")
+            col.operator("reforge.export_selected_glb", icon="FILE_3D")
+            col.operator("reforge.export_all_glb", icon="FILE_3D")
 
         box = layout.box()
         if draw_foldout_header(box, s, "show_folders"):

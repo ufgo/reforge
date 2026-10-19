@@ -5,9 +5,11 @@ from .export_core import (
     run_export_scene,
     export_single_prototype_assets,
     export_all_prototypes_assets_no_scene,
+    export_selected_glb,
+    export_all_glb_no_scene,
 )
 from .materials import ensure_material_props
-from .utils import is_object_visible, sanitize_id
+from .utils import is_object_visible, sanitize_id, compute_prototype_name
 
 # Keys to clear (exporter-created)
 OBJECT_EXPORT_KEYS = (
@@ -30,28 +32,6 @@ MATERIAL_EXPORT_KEYS = (
 
 
 # ------------------------------------------------------------
-# Duplicate name detection (.001/.002 -> base)
-# ------------------------------------------------------------
-_DUPLICATE_SUFFIX_RE = re.compile(r"^(.*)\.\d{3}$")
-
-
-def compute_prototype_name(obj_name: str, detect_duplicates: bool) -> str:
-    """
-    If detect_duplicates is enabled:
-      'Name.001' -> 'Name'
-      'Name.002' -> 'Name'
-    Otherwise: use obj_name as-is.
-
-    Always sanitized to be a stable Defold id / filename friendly string.
-    """
-    base = obj_name
-    if detect_duplicates:
-        m = _DUPLICATE_SUFFIX_RE.match(obj_name)
-        if m:
-            base = m.group(1)
-    return sanitize_id(base)
-
-
 # ------------------------------------------------------------
 # SAFE CLEAR (only our keys)
 # ------------------------------------------------------------
@@ -225,6 +205,41 @@ class REFORGE_OT_export_all_prototypes(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+class REFORGE_OT_export_selected_glb(bpy.types.Operator):
+    """Export only the .glb mesh for selected object(s) / prototype(s) into Defold models folder, without regenerating .model, .go, bake, or collisions."""
+    bl_idname = "reforge.export_selected_glb"
+    bl_label = "Export Selected (GLB Only)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        try:
+            exported = export_selected_glb(context)
+            if len(exported) == 1:
+                self.report({'INFO'}, f"Exported GLB: {exported[0]}.glb")
+            else:
+                self.report({'INFO'}, f"Exported {len(exported)} GLBs: {', '.join(exported)}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+
+
+class REFORGE_OT_export_all_glb(bpy.types.Operator):
+    """Export only .glb meshes for all prototypes in the scene into Defold models folder, without regenerating .model, .go, bake, or collisions."""
+    bl_idname = "reforge.export_all_glb"
+    bl_label = "Export ALL Prototypes (GLB Only)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        try:
+            n = export_all_glb_no_scene(context)
+            self.report({'INFO'}, f"Exported GLB prototypes: {n}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+
+
 # ------------------------------------------------------------
 # Operators: Tools -> Set Props
 # ------------------------------------------------------------
@@ -373,6 +388,8 @@ _CLASSES = (
     REFORGE_OT_generate,
     REFORGE_OT_export_selected_prototype,
     REFORGE_OT_export_all_prototypes,
+    REFORGE_OT_export_selected_glb,
+    REFORGE_OT_export_all_glb,
     REFORGE_OT_set_selected,
     REFORGE_OT_set_visible,
     REFORGE_OT_set_all,

@@ -1,5 +1,5 @@
-# reforge/export_core.py
 import os
+import bpy
 from mathutils import Matrix
 
 from .utils import (
@@ -7,6 +7,7 @@ from .utils import (
     safe_remove_file,
     write_text_file,
     sanitize_id,
+    compute_prototype_name,
     select_only,
     export_glb_selected,
     get_prop,
@@ -277,6 +278,145 @@ def export_all_prototypes_assets_no_scene(context) -> int:
         # export only "etalon" mesh for this proto
         export_single_prototype_assets(context, groups[proto][0])
         n += 1
+    return n
+
+
+def export_single_prototype_glb(context, obj) -> str:
+    """
+    Export ONLY <proto>.glb for ONE prototype (or mesh object).
+    Does NOT touch .model, .go, collisions, or textures.
+    Returns: proto id (sanitized)
+    """
+    s = context.scene.reforge_settings
+    project_root = s.project_root
+    if not project_root or not os.path.isdir(project_root):
+        raise RuntimeError("Project Root is empty or not found.")
+
+    if not obj or obj.type != "MESH":
+        raise RuntimeError("Active object is not a MESH.")
+
+    proto_raw = get_prop(obj, "defold_prototype")
+    if not proto_raw:
+        proto_raw = compute_prototype_name(obj.name, getattr(s, "detect_duplicates", False))
+    proto = sanitize_id(proto_raw)
+
+    abs_models = os.path.join(project_root, s.models_dir)
+    ensure_dir(abs_models)
+
+    glb_filename = f"{proto}.glb"
+    abs_glb = os.path.join(abs_models, glb_filename)
+
+    safe_remove_file(abs_glb)
+    select_only(obj)
+    export_glb_selected(abs_glb, obj)
+
+    return proto
+
+
+def export_selected_glb(context) -> list:
+    """
+    Export ONLY .glb meshes for selected object(s) / prototype(s).
+    If multiple objects are selected, each unique prototype is exported once.
+    Restores original selection and active object afterwards.
+    """
+    s = context.scene.reforge_settings
+    project_root = s.project_root
+    if not project_root or not os.path.isdir(project_root):
+        raise RuntimeError("Project Root is empty or not found.")
+
+    if context.mode != 'OBJECT' and hasattr(bpy.ops.object, "mode_set") and bpy.ops.object.mode_set.poll():
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    selected_meshes = [o for o in context.selected_objects if o.type == "MESH"]
+    if not selected_meshes:
+        if context.active_object and context.active_object.type == "MESH":
+            selected_meshes = [context.active_object]
+        else:
+            raise RuntimeError("No active or selected MESH object.")
+
+    groups = {}
+    for obj in selected_meshes:
+        proto_raw = get_prop(obj, "defold_prototype")
+        if not proto_raw:
+            proto_raw = compute_prototype_name(obj.name, getattr(s, "detect_duplicates", False))
+        proto = sanitize_id(proto_raw)
+        groups.setdefault(proto, obj)
+
+    orig_selected = list(context.selected_objects)
+    orig_active = context.active_object
+
+    exported = []
+    try:
+        for proto, obj in groups.items():
+            export_single_prototype_glb(context, obj)
+            exported.append(proto)
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in orig_selected:
+            try:
+                o.select_set(True)
+            except Exception:
+                pass
+        if orig_active:
+            try:
+                context.view_layer.objects.active = orig_active
+            except Exception:
+                pass
+
+    return exported
+
+
+def export_all_glb_no_scene(context) -> int:
+    """
+    Export ONLY .glb meshes for all prototypes in the scene.
+    Does NOT regenerate .model, .go, bake, or .collection.
+    """
+    s = context.scene.reforge_settings
+    project_root = s.project_root
+    if not project_root or not os.path.isdir(project_root):
+        raise RuntimeError("Project Root is empty or not found.")
+
+    if context.mode != 'OBJECT' and hasattr(bpy.ops.object, "mode_set") and bpy.ops.object.mode_set.poll():
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    view_layer = context.view_layer
+
+    groups = {}
+    for obj in context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        if s.export_visible_only and not is_object_visible(obj, view_layer):
+            continue
+        proto = get_prop(obj, "defold_prototype")
+        if not proto:
+            continue
+        proto = sanitize_id(proto)
+        groups.setdefault(proto, []).append(obj)
+
+    if not groups:
+        raise RuntimeError("No MESH objects with 'defold_prototype' found (with current visibility filter).")
+
+    orig_selected = list(context.selected_objects)
+    orig_active = context.active_object
+
+    n = 0
+    try:
+        for proto in sorted(groups.keys()):
+            export_single_prototype_glb(context, groups[proto][0])
+            n += 1
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in orig_selected:
+            try:
+                o.select_set(True)
+            except Exception:
+                pass
+        if orig_active:
+            try:
+                context.view_layer.objects.active = orig_active
+            except Exception:
+                pass
+
     return n
 
 

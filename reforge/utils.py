@@ -20,6 +20,26 @@ def sanitize_id(s: str) -> str:
     s = "".join(ch for ch in s if ch.isalnum() or ch in "_-")
     return s or "prototype"
 
+import re
+
+_DUPLICATE_SUFFIX_RE = re.compile(r"^(.*)\.\d{3}$")
+
+def compute_prototype_name(obj_name: str, detect_duplicates: bool) -> str:
+    """
+    If detect_duplicates is enabled:
+      'Name.001' -> 'Name'
+      'Name.002' -> 'Name'
+    Otherwise: use obj_name as-is.
+
+    Always sanitized to be a stable Defold id / filename friendly string.
+    """
+    base = obj_name
+    if detect_duplicates:
+        m = _DUPLICATE_SUFFIX_RE.match(obj_name)
+        if m:
+            base = m.group(1)
+    return sanitize_id(base)
+
 def select_only(obj):
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
